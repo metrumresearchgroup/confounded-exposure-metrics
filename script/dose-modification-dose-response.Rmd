@@ -1,0 +1,123 @@
+---
+title: "Dose modification dose-response time varying covariate model"
+author: "Matthew Wiens"
+output:
+  pdf_document: templ::mrg_document
+html_document: default
+editor_options:
+  chunk_output_type: console
+---
+
+```{R, include = F}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE)
+
+```
+
+This markdown demonstrates how a biased and incorrect conclusion of the dose-response relationship can be created through dose reductions throughout the course of a study, despite using time-varying dosing information.
+
+
+```{R setup, echo = F}
+
+library(tidyverse)
+library(mrgsolve)
+library(survival)
+library(survminer)
+library(flexsurv)
+
+projDir = here::here()
+scriptDir = file.path(projDir, "script")
+tabDir = file.path(projDir, "deliv", "table", "dose-reduction")
+figDir = file.path(projDir, "deliv", "figure", "dose-reduction")
+
+theme_set(theme_bw())
+
+set.seed(123)
+
+thisScript = "dose-modification-dose-response.Rmd"
+
+options(mrg.script = thisScript, mrggsave.dir = figDir)
+
+```
+
+We assume all patients, for simplicity, have the same QD dosing regimen, but 75% with a dose reduction, with 50 days at a full dose, and then 50 days at a half dose. 
+
+
+```{R}
+
+n_full <- 1000
+
+n_reduction <- 3000
+
+n <- n_full + n_reduction
+
+dosing_data_full <- tibble(ID = seq(1:n_full), 
+                           START = 0,
+                           STOP = 100, 
+                           DOSE = 1) 
+
+dosing_data_reduction <- tibble(ID = rep((n_full + 1):n, each = 2),
+                                START = rep(c(0, 50), n_reduction),
+                                STOP = rep(c(50, 100), n_reduction), 
+                                DOSE = rep(c(1, 0.5), n_reduction)) 
+
+dosing_data <- bind_rows(dosing_data_full, dosing_data_reduction)
+  
+
+```
+
+
+We also simulate TTE data, with **no** dependence on exposure (or anything else). A frailty model is used as the basis for simulation, where each patient has an expected survival time of either 25 days or 100 days (with equal probability). 
+
+```{R}
+
+last_time <- as.numeric(max(dosing_data$STOP))
+
+
+TTEs = tibble(ID = 1:n) %>%
+  mutate(mean_time = sample(c(25, 100), size = n, replace = T, prob = c(0.5, 0.5))) %>%
+  mutate(actual_event_time = 1 + ceiling(rexp(n, 1/mean_time))) %>%
+  mutate(EV = as.numeric(actual_event_time <= last_time),
+         EVTIME = pmin(actual_event_time, last_time))
+
+```
+
+```{R}
+
+analysis_dat_raw <- dosing_data %>%
+  inner_join(TTEs, by = "ID")
+
+analysis_dat <- analysis_dat_raw %>%
+  filter(EVTIME > START) %>%
+  mutate(status = as.integer((EVTIME <= STOP) & EV),
+         STOP = pmin(EVTIME, STOP))
+
+
+```
+
+
+We fit two PH survival models and one simple Cox PH fit, one with an exponential hazard function, and one with a gompertz hazard function.
+
+```{R fits}
+model_exp <- flexsurvreg(Surv(START, STOP, status) ~ DOSE, dist = "exp", data = analysis_dat)
+
+
+model_gompertz <- flexsurvreg(Surv(START, STOP, status) ~ DOSE, dist = "gompertz", data = analysis_dat)
+
+model_coxph <- coxph(Surv(START, STOP, status) ~ DOSE, data = analysis_dat)
+
+```
+
+This analysis shows a "significant" dose-response relationship for a PH model with an exponential or Gompertz hazard. An AFT model could also be used here as well. However, note that the cox model correctly identifies the lack of dose-response relationship. While the PH models are mis-specified (because of the underlying fraility model), this sort of situation naturally arises when there are unmeasured factors that relate to survival time. It's not necessary for these unmeasured to relate to exposure
+
+```{R}
+# Exponential Model
+model_exp
+
+# Gompertz Model
+model_gompertz
+
+# Cox PH model
+model_coxph
+
+```
+

@@ -1,0 +1,202 @@
+---
+title: "Confounded Exposure Metrics"
+author: "Matthew Wiens"
+itemize: circle
+output:
+  beamer_presentation:
+    slide_level: 2
+    template: beamer_template.tex
+    toc: no
+    keep_tex: true
+  slidy_presentation: default
+logo: mrglogo2.pdf
+subtitle: "JET March 27, 2023"
+enumerate: square
+---
+
+```{R, include = F}
+knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE)
+
+```
+
+
+```{R}
+library(ggplot2)
+```
+
+# Introduction
+
+## Introduction and E-R Modeling
+
+- Exposure-response modeling usually uses a summary metric of the simulated concentrations from a PopPK model
+- Often, we want a simple exposure metric for interpretability
+- The choice of the exposure metric is often subject to extensive debate
+  - Exposure metrics can be lead to bias E-R relationships
+  - This simulation was prompted by a lengthy discussion with a client about ER modeling in the presence of both an up-titration arm and frequent dose reductions
+- The goal of this simulation is to clarify  what makes a good exposure metric 
+
+## Motivation
+
+- Oncology setting, ADC (antibody-drug conjugate) dosed every three weeks
+  - There are a several efficacy  and $\approx$ 10 safety models to develop
+  - One arm is an up-titration arm, and dose reductions are somewhat common
+  - Discussion with client: how to summarize exposure?
+- Exposure metrics 
+  - Average concentration steady state (AUCss)
+  - Cycle 1 Cmax, Cavg, etc.
+  - Cavg, Cmax, etc. concentration from 0 through the event (Cavg TTE)
+- Related to, but *not* the same as response-driven clearance
+
+## Examples in previous work
+
+- ACOP Poster: "CavgTE is more frequently requested by regulatory reviewers"
+- Ipatasertib: Using average dose to generate AUCss
+- Metrum Projects
+- Ana Ruiz published a nice tutorial paper outlining E-R modeling
+
+
+## Example Analysis
+
+\includegraphics{uro2.png}
+
+Note the different exposure levels by quartile in each plot
+
+\tiny source: https://www.urotoday.com/conference-highlights/asco-2021/asco-2021-kidney-cancer/130018-asco-2021-cabozantinib-exposure-response-analysis-for-the-phase-3-checkmate-9er-trial-of-nivolumab-plus-cabozantinib-versus-sunitinib-in-first-line-advanced-renal-cell-carcinoma.html
+
+# Simulation Example
+
+## Simulation Example - Inducing a Biased Exposure-Response Relationship
+
+
+## Methods 
+
+- Simulate PK data with IIV, but no covariate effects
+- Simulate E-R data with no relationship between exposure and response
+- Perform, simple but typical statistical analyses
+- And show that if we use certain exposure metrics we have a biased and wrong conclusion
+
+## Typical PK Data
+
+\includegraphics[height=3in]{../figure/typical-concentration-plot.pdf}
+
+<!-- - 2-compartment model (pk2cmt in MRGSolve) -->
+<!-- - Dosing every 3 weeks -->
+<!-- - Add in IIV on clearance to simulate population data -->
+<!-- - No covariates -->
+
+
+## Survival Curve
+
+- Same survival distribution for all patients
+  - **No** dependence on concentration 
+  - High hazard at the beginning of the study, decreasing over time
+- Censoring after 6 cycles
+
+\includegraphics[height=2in]{../figure/survival-plot.pdf}
+
+## Data Scatterplot
+
+Clear trend when exposures are high.
+
+\includegraphics{../figure/cavg-scatterplot.pdf}
+
+## Kaplan-Meier Analysis
+
+Very large difference between arms, especially for Q4
+
+\includegraphics[height=2.2in]{../figure/cavg-km.pdf}
+
+## Logistic Regression Analysis
+
+Estimated probability going from  $\approx 0$ to $\approx 1$ across the range of exposures
+
+\includegraphics{../figure/cavg-lr.pdf}
+
+## Take 2: Using Cycle 1 Cavg Scatterplot
+
+This plot already looks better
+
+\includegraphics{../figure/c1-scatterplot.pdf}
+
+
+## Take 2: Using Cycle 1 K-M Curves
+
+Confirming no relationship
+
+\includegraphics{../figure/c1-km.pdf}
+
+
+## Take 2: Using Cycle 1 Logistic Regression
+
+Also no relationship
+
+\includegraphics{../figure/c1-lr.pdf}
+
+# Discussion
+
+## Discussion
+
+## Model Evaluation
+
+- Quantitative model evaluation metrics don't tell the right story 
+- AIC
+  - Cavg TTE: 2054
+  - Cavg Cycle 1: 2774
+- The Cavg TTE model also has better looking residuals
+- Simulations/VPCs?
+
+## Some DAGs
+
+```{R,fig.height=1,fig.cap="Desired Analysis"}
+d1 <- dagitty::dagitty('dag {
+Exposure [exposure,pos="-0.5,-0.00"]
+Response [outcome,pos="0.5,0.00"]
+Exposure -> Response
+}')
+
+ggdag::ggdag(d1, layout = "circle", node_size = 18, text_size = 2.5) +
+  ggdag::theme_dag() +
+  ggplot2::scale_x_continuous(expand = expansion(mult = c(0.2, 0.2)))
+
+```
+
+```{R,fig.height=1.5,fig.cap="Cavg TTE Analysis"}
+d2 <- dagitty::dagitty('dag {
+Exposure [exposure,pos="-0.5,0"]
+Time [time,pos="-0.0,-0.25"]
+Response [outcome,pos="0.5,0"]
+Response -> Time -> Exposure
+}')
+
+ggdag::ggdag(d2, layout = "circle", node_size = 18, edge_type =  "arc", text_size = 2.5) +
+  ggdag::theme_dag() +
+  ggplot2::scale_x_continuous(expand = expansion(mult = c(0.75, 0.75))) +
+  ggplot2::scale_y_continuous(expand = expansion(mult = c(0.55, 0.55)))
+
+
+```
+
+## Causal Inference, DAGs, and Confounding
+
+- The outcome should never influence a covariate/predictor
+  - I.e. two patients with the exact same concentration trajectory must have the same exposure metric
+  - Be careful when incorporating information about when an event happened/censoring (e.g. dosing in simulations)
+- Think about which way the arrows of causality are going in the model
+- Hypothetical censoring, or lack of censoring can be a useful thought exercise 
+- Designing your "target trial"
+
+## Other Alternatives
+
+- Cycle 1 (2, 3, steady state) exposures
+- Piecewise model, different exposure in each cycle
+- Full longitudinal exposure in model
+- Markov Model
+
+##  Conclusions
+
+- Average concentration through the event isn't a good choice of exposure metrics
+- Confounding by using the outcome as a predictor can arise in subtle ways
+- Non-biased model might be substantially more complicated
+- GHE Repo: https://ghe.metrumrg.com/mattheww/cavg-tte-demo
+
+

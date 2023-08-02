@@ -1,0 +1,262 @@
+---
+title: "Cmax exposure metric demo"
+author: "Matthew Wiens"
+output:
+  pdf_document: templ::mrg_document
+html_document: default
+editor_options:
+  chunk_output_type: console
+---
+  
+# Introduction
+  
+```{R, include = F}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE)
+
+```
+
+This supplemental markdown demonstrates how a biased and incorrect conclusion of the exposure-response relationship can be created by using Cmax between the start of the study and the event of interest.
+
+
+```{R setup, echo = F}
+
+library(tidyverse)
+library(mrgsolve)
+library(survival)
+library(survminer)
+
+projDir = here::here()
+scriptDir = file.path(projDir, "script")
+tabDir = file.path(projDir, "deliv", "table", "cmax")
+figDir = file.path(projDir, "deliv", "figure", "cmax")
+
+theme_set(theme_bw())
+
+set.seed(123)
+
+thisScript = "cmax-demo.Rmd"
+
+options(mrg.script = thisScript, mrggsave.dir = figDir)
+
+
+n <- 2000
+```
+
+# Exposure Simulation
+
+Set up mrgsolve data to generate exposures. The structural model is a 2 compartment model.
+
+We simulate a dose of 100 mg every 3 weeks, for 6 cycles.
+
+```{R, include=F}
+
+mod <- mrgsolve::mread(here::here("model", "nonmem", "simmod", "pk2cmt.cpp"))
+
+```
+
+```{R}
+data <- bbr::nm_join(bbr::read_model(here::here("model/nonmem/106")))
+
+dose_rec <- filter(data, EVID==1)
+
+pars <- distinct(dose_rec,ID,CL,V2,Q,V3,KA,AMT,RF,ACTARM)
+
+
+dose <- tibble( AMT = 100, ID = 1, TIME=0:5 * 21, EVID=1, CMT=1)   %>%
+  inner_join(pars %>% slice_head(n = 1) %>% select(CL, V2, Q, V3, KA), 
+             by = character()) %>%
+  mutate(CL = CL/3)
+
+out <- mrgsim_df(mod, 
+                 dose,
+                 recover = "ACTARM,RF,CL,DOSE",
+                 carry.out = "EVID", 
+                 recsort = 3,
+                 tgrid = 0:(6 * 21)) %>% 
+  as_tibble() %>% 
+  distinct() %>%
+  group_by(TIME) %>%
+  filter(EVID != 1) %>%
+  ungroup() %>%
+  filter(TIME > 0) %>%
+  mutate(CAVG = AUC/TIME)
+
+
+```
+
+
+```{R,fig.cap="Concentrations for a subject with a reference value of clearance."}
+out  %>%
+  ggplot() +
+  geom_point(aes(x = TIME, y = CP, color = "Concentration")) +
+  geom_line(aes(x = TIME, y = CP, color = "Concentration")) +
+  geom_point(aes(x = TIME, y = CAVG, color = "Average Concentration")) +
+  geom_line(aes(x = TIME, y = CAVG, color = "Average Concentration")) +
+  labs(x = "Time (days)",
+       y = "Concentration", 
+       title = "Typical Concentration Profile",
+       color = "Concentration Metric")
+
+```
+
+```{R}
+# Simulate n patients
+
+indiv_dose <- dose %>%
+  select(-ID) %>% 
+  inner_join(tibble(ID = 1:n,
+                    ETA1 = rnorm(n, 0, 0.3)),
+             by = character()) %>%
+  mutate(CL = CL * exp(ETA1)) %>%
+  arrange(ID, TIME)
+
+out2 <- mrgsim_df(mod, 
+                  indiv_dose,
+                  recover = "ACTARM,RF,CL,DOSE",  
+                  carry.out = "EVID",
+                  recsort = 3, 
+                  tgrid = seq(0, 6 * 21, by = 0.1)) %>% 
+  as_tibble() %>% 
+  distinct() %>%
+  filter(EVID != 1) %>%
+  filter(TIME > 0) %>%
+  group_by(ID) %>%
+  mutate(CAVG = AUC/TIME,
+         CMAX = cummax(CP)) %>%
+  ungroup()
+
+CAVGC1_df = out2 %>% 
+  filter(TIME == 21) %>% 
+  select(ID, CAVGC1 = CAVG) 
+
+exposures = out2 %>%
+  inner_join(CAVGC1_df) %>%
+  select(ID, TIME, CAVG, CMAX, CAVGC1) %>% 
+  arrange(ID, TIME)
+
+```
+
+# TTE Data
+
+We also simulate TTE data, with **no** dependence on exposure (or anything else). A Weibull survival model is used, visualized below, and we assume 25% of patients won't have the AE regardless of exposure.
+
+```{R}
+
+last_time <- max(exposures$TIME)
+
+```
+
+```{R, include=F, fig.cap = "Density of Event Times"}
+tibble(x = 0:150) %>%
+  mutate(y = dweibull(x, shape = 0.45, scale = 100)) %>%
+  ggplot(aes(x = x, y = y)) +
+  geom_line() +
+  labs(x = "Time", y = "Density")
+```
+
+
+```{R, fig.cap = "True survival curve used to generate simulated event times"}
+tibble(x = 0:150) %>%
+  mutate(y = pweibull(x, shape = 0.45, scale = 100)) %>%
+  ggplot(aes(x = x, y = 0.25 + 0.75 * (1 - y) )) +
+  geom_line() +
+  labs(x = "Time", 
+       y = "Survival Probability",
+       title = "True Survival Curve") +
+  coord_cartesian(ylim = c(0, 1))
+
+TTEs = tibble(ID = 1:n) %>%
+  mutate(can_have_event = rbernoulli(n, 0.75)) %>%
+  mutate(actual_event_time = 1 + ceiling(rweibull(n, shape = 0.45, scale = 100))) %>%
+  mutate(EV = can_have_event * as.numeric(actual_event_time <= last_time) ,
+         EVTIME = if_else(can_have_event, pmin(actual_event_time, last_time), last_time))
+
+```
+
+The analysis data is created using simulated exposures and event times. We also derive exposure quartiles for Kaplan-Meier plots.
+
+
+```{R, include=F}
+
+analysis_dat <- exposures %>%
+  inner_join(TTEs, by = c("ID" = "ID", "TIME" = "EVTIME")) %>%
+  mutate(CAVGTTE_quartile = as.factor(glue::glue("Q{ntile(CAVG, 4)}")),
+         CMAX_quartile = as.factor(glue::glue("Q{ntile(CMAX, 4)}")),
+         CAVGC1_quartile = as.factor(glue::glue("Q{ntile(CAVGC1, 4)}")))
+
+```
+
+# Modeling Results
+
+Three plots of different analysis strategies show the induced confounding between Cmax until the event (Cmax) and probability of having an AE (or survival time until an AE). Logistic regression does ignore potential censoring mechanisms in real problem, but that's not relevant here since the only censoring is administrative censoring, at the same day for all subjects. 
+
+```{R, echo = F, fig.width=7,fig.cap="There is a clear relationship between the CMAX until the event exposure metric\nand event time, resulting from confounding"}
+
+analysis_dat %>%
+  ggplot(aes(x = CMAX, y = TIME, color = as.factor(EV == 1))) +
+  geom_point() +
+  labs(x = "Cmax Until Event",
+       y = "Event Time", 
+       color = "Had Event before censoring",
+       title = "Exposure-Event time scatter plot") 
+
+```
+
+
+```{R, echo=F, fig.cap="K-M curves by exposure quartile show a clear (biased) E-R relationship" }
+
+ggsurvplot(survfit(Surv(TIME, EV) ~ CMAX_quartile, data = analysis_dat),
+           legend.labs = c("Q1", "Q2", "Q3", "Q4"),
+           legend.title = "Cmax Until Event Exposure Quartile",
+           title = "Survival Analysis" )
+
+```
+
+```{R, fig.cap="Fitting a logistic regression to the censored simulated data shows a clear (biased) relationship between exposure and risk"}
+analysis_dat %>%
+  ggplot(aes(x = CMAX, y = EV)) +
+  geom_point(shape = "|") +
+  geom_smooth(method = "glm", method.args = list(family = "binomial")) +
+  scale_x_log10() +
+  labs(x = "Cmax Until Event",
+       y = "(Probability of) Event",
+       title = "Logistic Regression Analysis")
+
+```
+
+Based on this analysis with average concentration, one would conclude that there is an exposure-response relationship, with higher exposures leading to more events. However, we know from the simulation creation that this is **not** the case, and in actuality there is no relationship between exposures and events. 
+
+# No Confouding Analysis
+
+When we use an exposure metric (e.g. predicted cycle 1 average concentration) that does not depend on what we are trying to predict, there is no confounding and we recover the true (null) relationship.
+
+```{R, echo = F, fig.cap = "No relationship between Cavg Cycle 1 and event time."}
+
+analysis_dat %>%
+  ggplot(aes(x = CAVGC1, y = TIME, color = as.factor(EV == 1))) +
+  geom_point() +
+  labs(x = "Cycle 1 Cavg", 
+       y = "Event Time", 
+       color = "Had Event before censoring", 
+       title = "Exposure-Event time scattter plot") 
+
+```
+
+```{R, fig.cap = "K-M curves by exposure quartile show no clear E-R relationship"}
+ggsurvplot(survfit( Surv(TIME, EV) ~ CAVGC1_quartile, data = analysis_dat),
+           legend.labs = c("Q1", "Q2", "Q3", "Q4"),
+           legend.title = "Cycle 1 Cavg Exposure Quartile",
+           title = "Survival Analysis")
+```
+
+```{R, fig.cap="Fitting a logistic regression to the censored simulated data shows no relationship between exposure and risk when using cycle 1 CAVG as the exposure metric"}
+analysis_dat %>%
+  ggplot(aes(x = CAVGC1, y = EV)) +
+  geom_point(shape = "|") +
+  geom_smooth(method = "glm", method.args = list(family = "binomial")) +
+  scale_x_log10() +
+  labs(x = "Cycle 1 Cavg", 
+       y = "(Probability of) Event",
+       title = "Logistic Regression Analysis")
+
+```

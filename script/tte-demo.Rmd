@@ -1,0 +1,527 @@
+---
+title: "Exposure Metrics Confounding Demo"
+author: "Matthew Wiens"
+output:
+  pdf_document: templ::mrg_document
+  html_document: default
+editor_options:
+  chunk_output_type: console
+---
+
+# Introduction
+
+```{R, include = F}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE)
+
+```
+
+This markdown demonstrates how a biased and incorrect conclusion of the exposure-response relationship can be created by using average concentration through the event (CAVG TTE) instead of more appropriate exposure metrics (e.g. Cycle 1 Average Concentration) which do not depend on the outcome variable.
+
+
+
+```{R setup, echo = F}
+
+library(tidyverse)
+library(mrgsolve)
+library(survival)
+library(survminer)
+
+projDir = here::here()
+scriptDir = file.path(projDir, "script")
+tabDir = file.path(projDir, "deliv", "table")
+figDir = file.path(projDir, "deliv", "figure")
+
+theme_set(theme_bw())
+
+set.seed(123)
+
+thisScript = "tte-demo.Rmd"
+
+options(mrg.script = thisScript, mrggsave.dir = figDir)
+
+
+n <- 2000
+```
+
+# Exposure Simulation
+
+Set up mrgsolve data to generate exposures. The structural model is a 2 compartment model.
+
+We simulate a dose of 100 mg every 3 weeks, for 6 cycles.
+
+```{R, include=F}
+
+mod <- mrgsolve::mread(here::here("model", "nonmem", "simmod", "pk2cmt.cpp"))
+
+```
+
+```{R}
+data <- bbr::nm_join(bbr::read_model(here::here("model/nonmem/106")))
+
+dose_rec <- filter(data, EVID==1)
+
+pars <- distinct(dose_rec,ID,CL,V2,Q,V3,KA,AMT,RF,ACTARM)
+
+
+dose <- tibble( AMT = 100, ID = 1, TIME=0:5 * 21, EVID=1, CMT=1)   %>%
+  inner_join(pars %>% slice_head(n = 1) %>% select(CL, V2, Q, V3, KA), 
+             by = character()) %>%
+  mutate(CL = CL*4)
+
+out <- mrgsim_df(mod, 
+                 dose,
+                 recover = "ACTARM,RF,CL,DOSE",
+                 carry.out = "EVID", 
+                 recsort = 3,
+                 tgrid = c(0.0000001, 0:(6 * 21))) %>% 
+  as_tibble() %>% 
+  distinct() %>%
+  group_by(TIME) %>%
+  filter(EVID != 1) %>%
+  ungroup() %>%
+  filter(TIME > 0) %>%
+  mutate(CAVG = AUC/TIME)
+
+
+```
+
+
+```{R,fig.cap="Concentrations for a subject with a reference value of clearance."}
+ct_label <-  "Average Concentration to time t (Cavg<sub>t</sub>)"
+cavg_label <- "Average Concentration to Event (Cavg<sub>TE</sub>)"
+c1_label <- "Average Concentration in Cycle 1 (Cavg<sub>C1</sub>)"
+
+typical_concentration_plot <- out  %>%
+  ggplot() +
+  geom_point(aes(x = TIME, y = CP, color = "conc")) +
+  geom_line(aes(x = TIME, y = CP, color = "conc")) +
+  geom_point(aes(x = TIME, 
+                 y = CAVG, 
+                 color = "avg_conc")) +
+  geom_line(aes(x = TIME,
+                y = CAVG, 
+                color = "avg_conc")) +
+  scale_color_discrete(
+    labels = c("avg_conc" = "Average Concentration to time t (Cavg<sub>t</sub> = AUC<sub>0-t</sub>/t)",
+               "conc" = "Concentration")) +
+  labs(x = "Time (days)",
+       y = "Concentration", 
+       title = "Typical Concentration Profile",
+       color = "Concentration Metric") +
+  theme(legend.text =
+          ggtext::element_textbox_simple(maxwidth = unit(3, "cm"),
+                                         hjust =0.5))
+
+typical_concentration_plot
+
+```
+
+```{R,echo=F}
+ggsave(typical_concentration_plot, 
+       filename = "typical-concentration-plot.pdf",
+       device = "pdf",
+       path = here::here("deliv", "figure"))
+```
+
+
+```{R}
+# Simulate n patients
+
+indiv_dose <- dose %>%
+  select(-ID) %>% 
+  inner_join(tibble(ID = 1:n,
+                    ETA1 = rnorm(n, 0, 0.3)),
+             by = character()) %>%
+  mutate(CL = CL * exp(ETA1)) %>%
+  arrange(ID, TIME)
+
+out2 <- mrgsim_df(mod, 
+                  indiv_dose,
+                  recover = "ACTARM,RF,CL,DOSE",  
+                  carry.out = "EVID",
+                  recsort = 3, 
+                  tgrid = 0:(6 * 21)) %>% 
+  as_tibble() %>% 
+  distinct() %>%
+  filter(EVID != 1) %>%
+  filter(TIME > 0) %>%
+  group_by(ID) %>%
+  mutate(CAVG = AUC/TIME) %>%
+  ungroup()
+
+CAVGC1_df = out2 %>% 
+  filter(TIME == 21) %>% 
+  select(ID, CAVGC1 = CAVG) 
+ 
+exposures = out2 %>%
+  inner_join(CAVGC1_df) %>%
+  select(ID, TIME, CAVG, CAVGC1) %>% 
+  arrange(ID, TIME)
+
+```
+
+
+# TTE Data
+
+We also simulate TTE data, with **no** dependence on exposure (or anything else). A Weibull survival model is used, visualized below, and we assume 25% of patients won't have the AE regardless of exposure.
+
+```{R}
+
+last_time <- max(exposures$TIME)
+
+```
+
+```{R, include=F, fig.cap = "Density of Event Times"}
+tibble(x = 0:150) %>%
+  mutate(y = dweibull(x, shape = 0.45, scale = 100)) %>%
+  ggplot(aes(x = x, y = y)) +
+  geom_line() +
+  labs(x = "Time", y = "Density")
+```
+
+
+```{R, fig.cap = "True survival curve used to generate simulated event times"}
+survival_plot <- tibble(x = 0:150) %>%
+  mutate(y = pweibull(x, shape = 0.45, scale = 100)) %>%
+  ggplot(aes(x = x, y = 0.25 + 0.75 * (1 - y) )) +
+  geom_line() +
+  labs(x = "Time (days)", 
+       y = "Survival Probability",
+       title = "True Survival Curve") +
+  coord_cartesian(ylim = c(0, 1))
+
+survival_plot
+
+TTEs <- tibble(ID = 1:n) %>%
+  mutate(can_have_event = rbernoulli(n, 0.75)) %>%
+  mutate(actual_event_time = 1 + ceiling(rweibull(n, shape = 0.45, scale = 100))) %>%
+  mutate(EV = can_have_event * as.numeric(actual_event_time <= last_time) ,
+         EVTIME = if_else(can_have_event,
+                          pmin(actual_event_time, last_time), 
+                          last_time))
+
+```
+
+```{R, echo=F}
+ggsave(survival_plot, 
+       filename = "survival-plot.pdf",
+       device = "pdf",
+       path = here::here("deliv", "figure"))
+
+```
+
+The analysis data is created using simulated exposures and event times. We also derive exposure quartiles for Kaplan-Meier plots.
+
+
+```{R, include=F}
+
+analysis_dat <- exposures %>%
+  inner_join(TTEs, by = c("ID" = "ID", "TIME" = "EVTIME")) %>%
+  mutate(CAVGTTE_quartile = as.factor(glue::glue("Q{ntile(CAVG, 4)}")),
+         CAVGC1_quartile = as.factor(glue::glue("Q{ntile(CAVGC1, 4)}")))
+
+```
+
+
+Correlation between the exposures metrics is moderate
+
+```{R}
+
+cor(analysis_dat$CAVG, analysis_dat$CAVGC1)
+
+exposure_metrics_correlation_plot <- 
+  ggplot(analysis_dat, aes(x = CAVG, y = CAVGC1, color = as.factor(EV == 1))) +
+  geom_point() +
+  labs(x = cavg_label, y = c1_label, color = "Had Event\nbefore censoring") +
+  theme(axis.title.x = ggtext::element_textbox(),
+        axis.title.y = ggtext::element_textbox(orientation = "left-rotated"))
+
+exposure_metrics_correlation_plot
+
+ggsave(filename = "supp_fig_2.png", 
+       plot = exposure_metrics_correlation_plot,
+       path = here::here("deliv", "figure", "publication"),
+       device = "png",
+       width = 178,
+       height = 150,
+       units = "mm",
+       dpi = 400)
+```
+
+# Modeling Results
+
+Three plots of different analysis strategies show the induced confounding between CAVG until the event (CAVG) and probability of having an AE (or survival time until an AE). Logistic regression does ignore potential censoring mechanisms in real problem, but that's not relevant here since the only censoring is administrative censoring, at the same day for all subjects. 
+
+```{R, echo = F, fig.width=7,fig.cap="There is a clear relationship between the CAVG until the event exposure metric\nand event time, resulting from confounding"}
+
+cavg_scatterplot <- analysis_dat %>%
+  ggplot(aes(x = CAVG, y = TIME, color = as.factor(EV == 1))) +
+  geom_point(size = 0.65) +
+  labs(x = cavg_label,
+       y = "Event Time (days)", 
+       color = "Had Event before censoring",
+       title = "Exposure-Event time scatter plot") +
+  theme(axis.title.x = ggtext::element_textbox())
+
+cavg_scatterplot
+```
+
+
+```{R, echo=F}
+ggsave(cavg_scatterplot, 
+       filename = "cavg-scatterplot.pdf",
+       device = "pdf",
+       path = here::here("deliv", "figure"))
+```
+
+
+```{R, echo=F, fig.cap="K-M curves by exposure quartile show a clear (biased) E-R relationship" }
+
+cavg_km <- ggsurvplot(survfit(Surv(TIME, EV) ~ CAVGTTE_quartile, data = analysis_dat),
+                      legend.labs = c("Q1", "Q2", "Q3", "Q4"),
+                      xlab = "Time (days)",
+                      legend.title = "Average Concentration to Event (Cavg<sub>TE</sub>) Exposure Quartile",
+                      title = "Survival Analysis" )$plot +
+  theme(legend.title = ggtext::element_textbox_simple(maxwidth =  unit(2, "cm")))
+
+cavg_km
+```
+
+```{R, fig.cap="Fitting a logistic regression to the censored simulated data shows a clear (biased) relationship between exposure and risk"}
+cavg_lr <- analysis_dat %>%
+  ggplot(aes(x = CAVG, y = EV)) +
+  geom_point(shape = "|") +
+  geom_smooth(method = "glm", method.args = list(family = "binomial")) +
+  scale_x_log10() +
+  labs(x = cavg_label,
+        y = "(Probability of) Event",
+       title = "Logistic Regression Analysis") +
+  theme(axis.title.x = ggtext::element_textbox())
+cavg_lr
+```
+
+
+
+```{R, echo=F}
+ggsave(cavg_km, 
+       filename = "cavg-km.pdf",
+       device = "pdf",
+       path = here::here("deliv", "figure"))
+
+ggsave(cavg_lr, 
+       filename = "cavg-lr.pdf",
+       device = "pdf",
+       path = here::here("deliv", "figure"))
+```
+
+
+Based on this analysis with average concentration, one would conclude that there is an exposure-response relationship, with higher exposures leading to more events. However, we know from the simulation creation that this is **not** the case, and in actuality there is no relationship between exposures and events. 
+
+# No Confouding Analysis
+
+When we use an exposure metric (e.g. predicted cycle 1 average concentration) that does not depend on what we are trying to predict, there is no confounding and we recover the true (null) relationship.
+
+```{R, echo = F, fig.cap = "No relationship between Cavg Cycle 1 and event time."}
+
+c1_scatterplot <- analysis_dat %>%
+  ggplot(aes(x = CAVGC1, y = TIME, color = as.factor(EV == 1))) +
+  geom_point(size = 0.65) +
+  labs(x = c1_label, 
+       y = "Event Time (days)", 
+       color = "Had Event before censoring", 
+       title = "Exposure-Event time scattter plot") +
+  theme(axis.title.x = ggtext::element_textbox())
+  
+c1_scatterplot
+```
+
+```{R, fig.cap = "K-M curves by exposure quartile show no clear E-R relationship"}
+c1_km <- ggsurvplot(survfit( Surv(TIME, EV) ~ CAVGC1_quartile, data = analysis_dat),
+                    xlab = "Time (days)",
+                    legend.labs = c("Q1", "Q2", "Q3", "Q4"),
+                    legend.title = "Average Concentration in Cycle 1 (Cavg<sub>C1</sub>) Exposure Quartile",
+                    title = "Survival Analysis")$plot +
+  theme(legend.title = ggtext::element_textbox_simple(maxwidth = unit(5, "cm")))
+
+c1_km
+```
+
+```{R, fig.cap="Fitting a logistic regression to the censored simulated data shows no relationship between exposure and risk when using cycle 1 CAVG as the exposure metric"}
+c1_lr <- analysis_dat %>%
+  ggplot(aes(x = CAVGC1, y = EV)) +
+  geom_point(shape = "|") +
+  geom_smooth(method = "glm", method.args = list(family = "binomial")) +
+  scale_x_log10() +
+  labs(x = c1_label, 
+       y = "(Probability of) Event",
+       title = "Logistic Regression Analysis") +
+  theme(axis.title.x = ggtext::element_textbox())
+
+c1_lr
+```
+
+```{R, echo=F}
+
+ggsave(c1_scatterplot, 
+       filename = "c1-scatterplot.pdf",
+       device = "pdf",
+       path = here::here("deliv", "figure"))
+
+ggsave(c1_km, 
+       filename = "c1-km.pdf",
+       device = "pdf",
+       path = here::here("deliv", "figure"))
+
+ggsave(c1_lr, 
+       filename = "c1-lr.pdf",
+       device = "pdf",
+       path = here::here("deliv", "figure"))
+```
+
+
+```{R, echo = F}
+# Set up model comparison
+
+m1 <- glm(formula = EV ~ CAVG,
+                family = binomial(),
+          data = analysis_dat)
+
+m2 <- glm(formula = EV ~ CAVGC1,
+                family = binomial(),
+          data = analysis_dat)
+
+
+AIC(m1)
+AIC(m2)
+
+```
+# Conclusion
+
+**Don’t make predictions using predictors that depend on the (time of the) outcome you are predicting, even if the model is "better".**  Specifically, if two patients who had the exactly the same concentration profile and different event times/status would have different exposure metrics, then there is potential for confounding and biased analysis. Cycle 1 Cavg leads to an unbiased analysis in __this__ case, but may not for specific cases (e.g. when clearance depends on tumor size and reductions in tumor size in antibody-drug conjugates)
+
+
+```{R pub_figs, echo=F, include=F}
+
+# Create figures for publication
+
+theme_set(theme_bw(base_size = 8))
+
+plot_legend_pos <- "bottom"
+
+fig1 <- cowplot::plot_grid(
+  typical_concentration_plot +
+    labs(title = "",
+         color = "Concentration \nMetric") +
+    theme(legend.position = plot_legend_pos,
+          legend.margin = margin(0,1,0,0),
+          legend.spacing = unit(1, "cm")) +
+    guides(color = guide_legend(label.hjust = 2)),
+  survival_plot + labs(title = ""),
+  labels = c("a", "b"),
+  ncol = 1)
+
+fig2 <- cowplot::plot_grid(
+  cavg_scatterplot +
+    labs(color = "Event\nOccurred",
+         title = "") +
+    theme(legend.position = plot_legend_pos,
+          axis.title.x = ggtext::element_textbox_simple(maxwidth =  unit(4, "cm"), 
+                                                        halign = 0.5)), 
+  cavg_km +
+    labs(title = "") +
+    theme_bw(base_size = 8) +
+    theme(legend.position = plot_legend_pos,
+          legend.direction = "vertical",
+          legend.title = ggtext::element_textbox_simple(maxwidth =  unit(5, "cm"), 
+                                                        halign = 0.5)) +
+    scale_color_discrete(guide = guide_legend(ncol = 4)), 
+  cavg_lr +
+    labs(title = "") +
+    theme(legend.position = plot_legend_pos,
+          axis.title.x = ggtext::element_textbox_simple(maxwidth =  unit(4, "cm"), 
+                                                        halign = 0.5)), 
+  c1_scatterplot + 
+    labs(color = "Event\nOccurred",
+         title = "") +
+    theme(legend.position = plot_legend_pos,
+          axis.title.x = ggtext::element_textbox_simple(maxwidth =  unit(4, "cm"), 
+                                                        halign = 0.5)), 
+  c1_km +
+    labs(title = "") +
+    theme_bw(base_size = 8) +
+    theme(legend.position = plot_legend_pos,
+          legend.direction = "vertical",
+          legend.title = ggtext::element_textbox_simple(maxwidth =  unit(5, "cm"), 
+                                                        halign = 0.5)) +
+    scale_color_discrete(guide = guide_legend(ncol = 4)), 
+  c1_lr +
+    labs(title = "") +
+    theme(legend.position = plot_legend_pos,
+          axis.title.x = ggtext::element_textbox_simple(maxwidth =  unit(4, "cm"), 
+                                                        halign = 0.5)), 
+  labels = c("a", "b", "c", "d", "e", "f"))
+
+
+ggsave(filename = "fig1.pdf", 
+       plot = fig1,
+       path = here::here("deliv", "figure", "publication"),
+       device = "pdf",
+       width = 178,
+       height = 150,
+       units = "mm",
+       dpi = 400)
+
+ggsave(filename = "fig2.pdf", 
+       plot = fig2,
+       path = here::here("deliv", "figure", "publication"),
+       device = "pdf",
+       width = 178,
+       height = 150,
+       units = "mm",
+       dpi = 400)
+
+
+ggsave(filename = "fig1.tiff", 
+       plot = fig1,
+       path = here::here("deliv", "figure", "publication"),
+       device = "tiff",
+       width = 178,
+       height = 150,
+       units = "mm",
+       dpi = 400)
+
+ggsave(filename = "fig2.tiff", 
+       plot = fig2,
+       path = here::here("deliv", "figure", "publication"),
+       device = "tiff",
+       width = 178,
+       height = 150,
+       units = "mm",
+       dpi = 400)
+
+
+ggsave(filename = "fig1.png", 
+       plot = fig1,
+       path = here::here("deliv", "figure", "publication"),
+       device = "png",
+       width = 178,
+       height = 150,
+       units = "mm",
+       dpi = 400)
+
+ggsave(filename = "fig2.png", 
+       plot = fig2,
+       path = here::here("deliv", "figure", "publication"),
+       device = "png",
+       width = 178,
+       height = 150,
+       units = "mm",
+       dpi = 400)
+```
+
+
+```{R}
+
+sessionInfo()
+
+```

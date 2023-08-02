@@ -1,0 +1,242 @@
+\documentclass{beamer}
+\usepackage{etoolbox}
+\usepackage{threeparttable}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{caption}
+
+% automatically center figures
+\AtBeginDocument{%
+  \letcs\oig{@orig\string\includegraphics}%
+  \renewcommand<>\includegraphics[2][]{%
+    \only#3{%
+      {\centering\oig[{#1}]{#2}\par}%
+    }%
+  }%
+}
+
+\usepackage{textpos}
+
+\usepackage[T1]{fontenc}
+
+$if(fontfamily)$
+\usepackage[$for(fontfamilyoptions)$$fontfamilyoptions$$sep$,$endfor$]{$fontfamily$}
+$else$
+\usepackage{roboto}
+$endif$
+
+$if(graphics)$
+  \usepackage{graphicx,grffile}
+  \makeatletter
+  \def\maxwidth{\ifdim\Gin@nat@width>\linewidth\linewidth\else\Gin@nat@width\fi}
+  \def\maxheight{\ifdim\Gin@nat@height>\textheight0.72\textheight\else\Gin@nat@height\fi}
+  \makeatother
+  % Scale images if necessary, so that they will not overflow the page
+  % margins by default, and it is still possible to overwrite the defaults
+  % using explicit options in \includegraphics[width, height, ...]{}
+  \setkeys{Gin}{width=\maxwidth,height=\maxheight,keepaspectratio}
+$endif$
+
+
+\def\tightlist{}
+
+% The beamer theme
+$if(theme)$
+  \usetheme[$for(themeoptions)$$themeoptions$$sep$,$endfor$]{$theme$}
+$else$
+\usetheme{CambridgeUS}
+$endif$
+
+
+$if(oldgreen)$
+
+\definecolor{mrggreen}{RGB}{19, 152, 4}
+\definecolor{mrggreen2}{RGB}{0, 102, 0}
+\setbeamercolor{palette primary}{fg=mrggreen2}
+\setbeamercolor{palette secondary}{fg=mrggreen2}
+\setbeamercolor{palette tertiary}{bg=mrggreen}
+
+\setbeamercolor*{structure}{fg=mrggreen2}
+\setbeamercolor{titlelike}{fg=black,bg=black!2!white}
+
+
+\setbeamercolor{block title}{use=structure,fg=white,bg=mrggreen}
+\setbeamercolor{block body}{use=structure,fg=black,bg=black!5!white}
+\setbeamercolor{block title alerted}{use=alerted text,fg=white,bg=alerted text.fg!75!black}
+\setbeamercolor{block body alerted}{bg=black!5!white}
+\setbeamercolor{block title example}{use=example text,fg=white,bg=blue!50!black}
+\setbeamercolor{block body example}{use=structure,fg=black,bg=black!5!white}
+
+$else$
+%s\setbeamertemplate{blocks}[rounded][shadow=false]
+% \usetheme[secheader]{Boadilla}
+% \usetheme{boxes}
+% \definecolor{mrgbeige}{RGB}{224 , 228, 204}
+% \definecolor{mrglight}{RGB}{239, 241, 229 }
+% \definecolor{mrggreen}{RGB}{9, 101, 46}
+% \definecolor{mrggreen2}{RGB}{9, 101, 46}
+\definecolor{darkteal}{RGB}{41, 127, 157}
+\definecolor{tealdark}{RGB}{41, 104, 157}
+\definecolor{accent2}{RGB}{37,138,158}
+\definecolor{accent3}{RGB}{29,160,158}
+\definecolor{grey}{RGB}{225,225,225}
+\definecolor{lgrey}{RGB}{200,200,200}
+\definecolor{vlgrey}{RGB}{240,240,240}
+\setbeamercolor{palette primary}{bg=lgrey,fg=black} % rightbox
+\setbeamercolor{palette secondary}{bg=grey,fg=darkteal}%middlebox
+\setbeamercolor{palette tertiary}{fg=white,bg=darkteal}
+\setbeamercolor{palette quaternary}{fg=white,bg=black}
+
+\setbeamercolor*{structure}{fg=darkteal}
+\setbeamercolor{frametitle}{fg=darkteal,bg=white}
+\setbeamercolor{titlelike}{fg=black,bg=vlgrey}%black!2!white}
+\setbeamercolor{block title}{use=structure,fg=white,bg=darkteal}
+\setbeamercolor{block body}{use=structure,fg=black,bg=vlgrey}
+\setbeamercolor{block title alerted}{use=alerted text,fg=white,bg=alerted text.fg!75!black}
+\setbeamercolor{block body alerted}{bg=black!5!white}
+\setbeamercolor{block title example}{use=example text,fg=white,bg=blue!50!black}
+\setbeamercolor{block body example}{use=structure,fg=black,bg=black!5!white}
+\setbeamercolor{frametitle}{fg=darkteal,bg=black!10!white}
+\setbeamercolor{frametitle}{fg=black,bg=white}
+$endif$
+
+$if(enumerate)$
+\setbeamertemplate{enumerate items}[$enumerate$]
+$else$
+\setbeamertemplate{enumerate items}[default]
+$endif$
+
+$if(itemize)$
+\setbeamertemplate{itemize items}[$itemize$]
+$else$
+\setbeamertemplate{itemize items}[default]
+$endif$
+
+\setbeamertemplate{section in toc}[circle]
+\setbeamertemplate{subsection in toc}[square]
+
+
+$if(highlighting-macros)$
+$highlighting-macros$
+$endif$
+
+% Copyright in footer
+\setbeamertemplate{footline}
+{
+  \leavevmode%
+  \hbox{%
+  \begin{beamercolorbox}[wd=.33333333333\paperwidth,ht=2.25ex,dp=1ex,center]{author in head/foot}%
+    \usebeamerfont{author in head/foot}CONFIDENTIAL \copyright \number \year\ \insertshortinstitute
+  \end{beamercolorbox}%
+  \begin{beamercolorbox}[wd=.33333333333\paperwidth,ht=2.25ex,dp=1ex,center]{title in head/foot}%
+    %\usebeamerfont{title in head/foot}\insertshorttitle
+  \end{beamercolorbox}%
+  \begin{beamercolorbox}[wd=.33333333333\paperwidth,ht=2.25ex,dp=1ex,right]{date in head/foot}%
+    \usebeamerfont{date in head/foot}\insertshortdate{}\hspace*{2em}
+    \insertframenumber{} / \inserttotalframenumber\hspace*{2ex}
+  \end{beamercolorbox}}%
+  \vskip0pt%
+}
+
+
+\makeatletter
+\def\ps@navigation@titlepage{%
+  \setbeamertemplate{footline}{
+  \leavevmode%
+  \hbox{%
+  \begin{beamercolorbox}[wd=.33333333333\paperwidth,ht=2.25ex,dp=1ex,center]{author in head/foot}%
+    \usebeamerfont{author in head/foot}
+  \end{beamercolorbox}%
+  \begin{beamercolorbox}[wd=.33333333333\paperwidth,ht=2.25ex,dp=1ex,center]{title in head/foot}%
+    \usebeamerfont{title in head/foot} CONFIDENTIAL \copyright \number \year\ \insertshortinstitute
+  \end{beamercolorbox}%
+  \begin{beamercolorbox}[wd=.33333333333\paperwidth,ht=2.25ex,dp=1ex,right]{date in head/foot}%
+    \usebeamerfont{date in head/foot}
+  \end{beamercolorbox}}%
+  \vskip0pt%
+
+  }% <-- define here the specific footline for the titlepage
+  \@nameuse{ps@navigation}}
+\addtobeamertemplate{title page}{\thispagestyle{navigation@titlepage}}{}
+\makeatother
+
+
+
+$if(title)$
+\title{$title$}
+$else$
+\title{MRG Presentation Template}
+$endif$
+
+$if(subtitle)$
+  \subtitle{$subtitle$}
+$endif$
+
+
+
+$if(author)$
+\author{$author$}
+$else$
+\author{MetrumRG Scientist}
+$endif$
+
+$if(date)$
+\date{$date$}
+$else$
+\date{\today}
+$endif$
+
+
+$for(include-before)$
+  $include-before$
+$endfor$
+
+
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{6pt plus 2pt minus 1pt}
+\setlength{\emergencystretch}{3em}  % prevent overfull lines
+\providecommand{\tightlist}{%
+  \setlength{\itemsep}{0pt}\setlength{\parskip}{0pt}}
+
+$if(dir)$
+  \ifxetex
+  % load bidi as late as possible as it modifies e.g. graphicx
+  $if(latex-dir-rtl)$
+    \usepackage[RTLdocument]{bidi}
+  $else$
+    \usepackage{bidi}
+  $endif$
+  \fi
+  \ifnum 0\ifxetex 1\fi\ifluatex 1\fi=0 % if pdftex
+    \TeXXeTstate=1
+    \newcommand{\RL}[1]{\beginR #1\endR}
+    \newcommand{\LR}[1]{\beginL #1\endL}
+    \newenvironment{RTL}{\beginR}{\endR}
+    \newenvironment{LTR}{\beginL}{\endL}
+  \fi
+$endif$
+
+
+$if(logo)$
+  \titlegraphic{\includegraphics[width=120px]{$logo$}}
+$endif$
+
+\begin{document}
+
+% Hide progress bar and footline on titlepage
+$if(title)$
+  \begin{frame}%[plain]
+  \titlepage
+  \end{frame}
+$endif$
+
+
+$if(toc)$
+  \begin{frame}
+  \tableofcontents[hideallsubsections]
+  \end{frame}
+$endif$
+
+$body$
+
+\end{document}

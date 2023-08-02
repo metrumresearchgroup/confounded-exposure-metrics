@@ -1,0 +1,44 @@
+---
+title: "Model Summary"
+output: html_document
+---
+
+```{r libraries, include = F}
+# See the following for an example of how this file can be used:
+# https://ghe.metrumrg.com/pages/example-projects/bbr-nonmem-poppk-foce/model-summary
+
+library(bbr)
+library(tidyverse)
+```
+
+## Run Log
+
+```{r }
+# create the raw run log
+MODEL_DIR <- "../model/nonmem" # CHANGE THIS TO YOUR MODELING DIRECTORY
+
+log_df <- run_log(MODEL_DIR) %>% 
+      add_config() %>%
+      add_summary()
+```
+
+```{r echo = FALSE, results = "asis"}
+# Consider adding `check_up_to_date()` and/or `audit_tags()` from
+# https://ghe.metrumrg.com/example-projects/bbr-nonmem-poppk-foce/blob/master/script/functions-model.R
+
+# See examples in:
+# https://ghe.metrumrg.com/example-projects/bbr-nonmem-poppk-foce/blob/master/script/model-summary.Rmd
+```
+
+```{r}
+# format log_df for display
+log_df %>% 
+  collapse_to_string(based_on, tags, notes) %>%
+  select(run, based_on, description, tags, ofv, param_count, notes) %>%
+  knitr::kable()
+```
+
+
+# Modeling notes
+
+Add any notes and/or supporting diagnostics, plots, tables, etc. below for notable decision points in the model development process. **(Delete this line when you add real content.)**

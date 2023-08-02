@@ -1,0 +1,32 @@
+SETUP__:
+  lookup_file: [lookup.yml]
+  description: ABC123 Population Pharmacokinetic (PK) Model Data Specification
+  projectnumber: ABC123  
+  sponsor: ABC Company
+  data_stem: pk
+  flags:
+    id: [ID] # Unique subject ID
+    num: [NUM] # Unique row ID
+    study: [STUDY] # Study ID
+    primary_keys: [EVID] # Variables where you anticipate no duplicate combinations (e.g. EVID and DVID)
+    time: [TIME] # Time 
+    bl_cat_cov: [SEX, RACE] # Baseline categorical covariate
+    # tv_cat_cov: [] # Time-varying categorical covariate
+    bl_cont_cov: [BLWT] # Baseline continuous covariate
+    # tv_cont_cov: [] # Time-varying continuous covariate
+C:
+NUM:
+STUDY:
+ID:
+TIME:
+TAD:
+DV:
+EVID:
+AMT: 
+BLQ:
+BLWT:
+SEX:
+RACE:
+OCC:
+USUBJID:
+DATETIME:

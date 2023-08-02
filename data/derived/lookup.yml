@@ -1,0 +1,78 @@
+SETUP__:
+  description: yspec internal column database
+C:
+  short: Commented rows
+  values: [".",C]
+  decode: [Not a comment, Comment for exclusion]
+  type: character
+NUM:
+  short: Row number
+  type: numeric
+STUDY:
+  short: Study number
+  short.tab: Study
+  type: numeric
+  values: [1, 2]
+  decode: [Study-1, Study-2]
+ID:
+  short: NONMEM ID number
+  type: numeric
+  comment: It must be unique per study and for the entire analysis dataset
+TIME:
+  short: Time after first dose
+  type: numeric
+  unit: hours
+TAD:
+  short: Time after dose
+  type: numeric
+  unit: hours
+DV:
+  short: Dependent variable
+EVID:
+  short: Event ID
+  type: numeric
+  values: [0, 1, 2]
+  decode: [Observation event, Dosing event, BLQ]
+AMT: 
+  short: Dose amount
+  type: numeric
+  unit: mg
+BLQ:
+  short: Below limit of quantification
+  type: numeric
+  values: [0, 1]
+  decode: [No, Yes]
+BLWT:
+  short: Baseline weight
+  short.tab: Weight
+  type: numeric
+  unit: kg
+SEX:
+  short: Sex
+  type: numeric
+  values: [1, 2]
+  decode: [Female, Male]
+RACE:
+  short: Race
+  type: numeric
+  values: [1,
+           2,
+           3,
+           4,
+           5,
+           6]
+  decode: [White, 
+           Black or African American,
+           Asian,
+           American Indian or Alaska Native,
+           Native Hawaiian or Other Pacific Islander,
+           Other or not specified]
+OCC:
+  short: Dose occasion
+  type: numeric
+USUBJID:
+  short: Unique subject identification number
+  type: character
+DATETIME:
+  short: Date and time
+  type: character
