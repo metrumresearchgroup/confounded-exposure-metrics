@@ -28,4 +28,4 @@ The [mrgsolve](https://mrgsolve.org/) model file used to generate exposures from
 
 # Further References
 
-- [Causal Inference: What If by Miguel Hernan and James] Robins(https://www.hsph.harvard.edu/miguel-hernan/wp-content/uploads/sites/1268/2023/07/hernanrobins_WhatIf_19jul23.pdf) This a thourough book explaining causal inference and controlling for confounding, among other issues, in analyses. 
+- [Causal Inference: What If by Miguel Hernan and James Robins] (https://www.hsph.harvard.edu/miguel-hernan/wp-content/uploads/sites/1268/2023/07/hernanrobins_WhatIf_19jul23.pdf) This a thourough book explaining causal inference and controlling for confounding, among other issues, in analyses. 
